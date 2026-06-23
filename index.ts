@@ -5,6 +5,7 @@
  */
 
 const USER_AGENT = "narrativesaw-reddit-mcp/1.0.0 (Cloudflare Worker; read-only)"
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 const REDDIT_BASE = "https://www.reddit.com"
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -24,6 +25,66 @@ async function redditFetch(path: string): Promise<unknown> {
   })
   if (!res.ok) throw new Error(`Reddit ${res.status}: ${path}`)
   return res.json()
+}
+
+// ── Debug: test multiple Reddit access methods ───────────────────────────────
+
+async function debugRedditAccess(): Promise<object> {
+  const tests = [
+    {
+      name: "www.reddit.com .json (bot UA)",
+      url: "https://www.reddit.com/r/technology/hot.json?limit=1",
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    },
+    {
+      name: "www.reddit.com .json (browser UA)",
+      url: "https://www.reddit.com/r/technology/hot.json?limit=1",
+      headers: { "User-Agent": BROWSER_UA, Accept: "application/json" },
+    },
+    {
+      name: "old.reddit.com .json",
+      url: "https://old.reddit.com/r/technology/hot.json?limit=1",
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    },
+    {
+      name: "old.reddit.com .json (browser UA)",
+      url: "https://old.reddit.com/r/technology/hot.json?limit=1",
+      headers: { "User-Agent": BROWSER_UA, Accept: "application/json" },
+    },
+    {
+      name: "RSS feed",
+      url: "https://www.reddit.com/r/technology/hot.rss?limit=1",
+      headers: { "User-Agent": USER_AGENT },
+    },
+    {
+      name: "api.reddit.com",
+      url: "https://api.reddit.com/r/technology/hot?limit=1",
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    },
+    {
+      name: "api.reddit.com (browser UA)",
+      url: "https://api.reddit.com/r/technology/hot?limit=1",
+      headers: { "User-Agent": BROWSER_UA, Accept: "application/json" },
+    },
+  ]
+
+  const results: any[] = []
+  for (const t of tests) {
+    try {
+      const res = await fetch(t.url, { headers: t.headers, redirect: "follow" })
+      const body = await res.text()
+      results.push({
+        name: t.name,
+        status: res.status,
+        ok: res.ok,
+        contentType: res.headers.get("content-type"),
+        bodyPreview: body.slice(0, 200),
+      })
+    } catch (err: any) {
+      results.push({ name: t.name, error: err.message })
+    }
+  }
+  return { tests: results }
 }
 
 // ── Response shapers ─────────────────────────────────────────────────────────
@@ -408,6 +469,11 @@ export default {
         return new Response("POST only", { status: 405, headers: CORS_HEADERS })
       }
       return handleMCP(req)
+    }
+
+    if (url.pathname === "/debug") {
+      const results = await debugRedditAccess()
+      return Response.json(results, { headers: CORS_HEADERS })
     }
 
     if (url.pathname === "/" || url.pathname === "/health") {
